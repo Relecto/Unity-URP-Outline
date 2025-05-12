@@ -39,6 +39,8 @@ public sealed class OutlineRenderPass : ScriptableRenderPass
 
 		public UniversalCameraData cameraData;
 
+		public TextureHandle depthTexture;
+
 		public RendererListHandle rendererListHandleR;
 		public RendererListHandle rendererListHandleG;
 		public RendererListHandle rendererListHandleB;
@@ -59,11 +61,6 @@ public sealed class OutlineRenderPass : ScriptableRenderPass
 	private static readonly uint RenderingLayerMaskG = RenderingLayerMask.GetMask("Outline_2");
 	private static readonly uint RenderingLayerMaskB = RenderingLayerMask.GetMask("Outline_3");
 	private static readonly uint RenderingLayerMaskA = RenderingLayerMask.GetMask("Outline_4");
-
-	private static readonly int OutlineRTextureId = Shader.PropertyToID("_Outline_R");
-	private static readonly int OutlineGTextureId = Shader.PropertyToID("_Outline_G");
-	private static readonly int OutlineBTextureId = Shader.PropertyToID("_Outline_B");
-	private static readonly int OutlineATextureId = Shader.PropertyToID("_Outline_A");
 
 	private static readonly int BlurKernelRadiusId = Shader.PropertyToID("_BlurKernelRadius");
 	private static readonly int BlurStandardDeviationId = Shader.PropertyToID("_BlurStandardDeviation");
@@ -129,6 +126,7 @@ public sealed class OutlineRenderPass : ScriptableRenderPass
 			passData.rendererListHandleA = CreateRendererList(renderGraph, renderingData, cameraData, RenderingLayerMaskA, 0);
 			passData.material = outlineMaterial;
 			passData.materialPassIndex = 1; // < The pass that does the masks composition into a single texture.
+			passData.depthTexture = resourceData.activeDepthTexture;
 
 			builder.UseTexture(passData.nonBlurredCombinedMask, AccessFlags.WriteAll);
 			builder.UseTexture(passData.target, AccessFlags.Write);
@@ -136,6 +134,7 @@ public sealed class OutlineRenderPass : ScriptableRenderPass
 			builder.UseRendererList(passData.rendererListHandleG);
 			builder.UseRendererList(passData.rendererListHandleB);
 			builder.UseRendererList(passData.rendererListHandleA);
+			builder.UseTexture(passData.depthTexture, AccessFlags.Read);
 			builder.SetRenderFunc((PassData data, UnsafeGraphContext context) => ExecuteUnsafeRenderOutlinePass(data, context));
 			builder.AllowPassCulling(false);
 		}
@@ -210,15 +209,14 @@ public sealed class OutlineRenderPass : ScriptableRenderPass
 	{
 		RenderTextureDescriptor cameraTargetDescriptor = cameraData.cameraTargetDescriptor;
 		cameraTargetDescriptor.depthBufferBits = (int)DepthBits.None;
+		
 		resolveTarget = UniversalRenderer.CreateRenderGraphTexture(renderGraph, cameraTargetDescriptor, "_OutlineResolve", false);
 
-		cameraTargetDescriptor.msaaSamples = 1;
-		
 		cameraTargetDescriptor.colorFormat = RenderTextureFormat.ARGB32;
 		
 		nonBlurredCombinedMask = UniversalRenderer.CreateRenderGraphTexture(renderGraph, cameraTargetDescriptor, "_OutlineCombinedMask", false, FilterMode.Point);
 		horizontalBlurTarget = UniversalRenderer.CreateRenderGraphTexture(renderGraph, cameraTargetDescriptor, "_OutlineHorizontalBlur", false, FilterMode.Bilinear);
-		
+
 		verticalBlurTarget = UniversalRenderer.CreateRenderGraphTexture(renderGraph, cameraTargetDescriptor, "_OutlineVerticalBlur", false, FilterMode.Bilinear);
 	}
 
@@ -318,7 +316,7 @@ public sealed class OutlineRenderPass : ScriptableRenderPass
 	private static void ExecuteUnsafeRenderOutlinePass(PassData passData, UnsafeGraphContext context)
 	{
 		UniversalCameraData cameraData = passData.cameraData;
-
+		
 		// We need to remove the jitter used by TAA because the rendered outline objects do not
 		// write motion vectors and they are not resolved correctly, causing the outline to be jittered.
 		bool usingTAA = cameraData.antialiasing == AntialiasingMode.TemporalAntiAliasing;
@@ -328,9 +326,9 @@ public sealed class OutlineRenderPass : ScriptableRenderPass
 			context.cmd.SetViewProjectionMatrices(cameraData.GetViewMatrix(), cameraData.camera.nonJitteredProjectionMatrix);
 
 		Color bgColor = new Color(0.0f, 0.0f, 0.0f, 0.0f);
-
+		
 		context.cmd.SetGlobalColor("_MaskColour", new Color(1f, 0.0f, 0.0f, 0.0f));
-		context.cmd.SetRenderTarget(passData.target);
+		context.cmd.SetRenderTarget(passData.target, passData.depthTexture);
 		context.cmd.ClearRenderTarget(false, true, bgColor);
 		context.cmd.DrawRendererList(passData.rendererListHandleR);
 		
