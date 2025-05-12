@@ -165,7 +165,7 @@ Shader "Hidden/Outline"
         {
             Name "OutlineResolve"
             
-            ZTest Greater
+            ZTest Always
             ZWrite Off
             Cull Off
             Blend Off
